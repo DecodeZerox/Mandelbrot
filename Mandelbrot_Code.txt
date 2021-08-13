@@ -1,0 +1,383 @@
+import enchant 
+from sklearn.linear_model import LogisticRegression as lr
+import numpy as np 
+import requests as req 
+import matplotlib.pyplot as plt 
+import cv2
+import pandas as pd 
+from natasha import Segmenter, MorphVocab, Doc 
+morph_vocab = MorphVocab() 
+segmenter = Segmenter() 
+from natasha import NewsEmbedding, NewsMorphTagger, Segmenter, MorphVocab, Doc 
+emb = NewsEmbedding() 
+morph_tagger = NewsMorphTagger(emb)
+from google.colab.patches import cv2_imshow
+import requests#Библиотека для запросов
+import json
+host = 'https://bank.goto.msk.ru'
+trading_token = '6b7b09f9-8dd3-457f-bb83-1ff0e80d5ba8'
+current = []#сюда будем складывать прочитанные сообщения
+current_message = []
+ids = []
+current_image = []
+d = enchant.Dict("ru_RU")
+df = pd.read_csv("/bagOfWords.csv", ';', index_col=0)
+X = df.loc[:, "а-ля":"ящик"]
+Y = df.sentiment
+mod = lr(random_state=0).fit(X, Y)
+def vectorise(df, test): 
+  cols = df.columns[1:-1] 
+  v = pd.DataFrame(columns=cols) 
+ 
+  doc = Doc(test) 
+  doc.segment(segmenter) 
+  doc.tag_morph(morph_tagger) 
+  for token in doc.tokens: 
+    token.lemmatize(morph_vocab) 
+  wrs = np.array([_.lemma for _ in doc.tokens]) 
+ 
+  for w in cols: 
+    v.loc[0, w] = float(w in wrs)
+   
+  return v
+def ask_money(from_id, amount, description):
+    answer = requests.post(host + '/api/ask', json={
+        'token': trading_token,
+        'account_id': from_id,
+        'amount': amount,
+        'description': description
+    })
+
+    return json.loads(answer.text)
+def verify_transaction(transaction_id, code):
+    answer = requests.post(host + '/api/verify', json={
+        "transaction_id": transaction_id,
+        "code": code
+    })
+
+    return json.loads(answer.text)
+def getFile(current_message):
+    file = requests.get('https://api.telegram.org/bot1937886190:AAFPr18rSNsqeplYVAYbl_NjqJXJmSEEIto/getFile?file_id=' + str(current_message['message']['voice']['file_id'])).json()
+    jsonreq = requests.get('https://api.telegram.org/file/bot1937886190:AAFPr18rSNsqeplYVAYbl_NjqJXJmSEEIto/' + str(file['result']['file_path'])).json()
+    return jsonreq
+def delete_message(current_message):
+    if 'message' in current_message:
+        idf = str(current_message['message']['chat']['id'])
+        json_request = requests.get('https://api.telegram.org/bot1937886190:AAFPr18rSNsqeplYVAYbl_NjqJXJmSEEIto/deleteMessage?chat_id=' + idf + '&message_id=' + str(current_message['message']['message_id'])).json()
+    else:
+        idf = str(current_message['result']['chat']['id'])
+        json_request = requests.get('https://api.telegram.org/bot1937886190:AAFPr18rSNsqeplYVAYbl_NjqJXJmSEEIto/deleteMessage?chat_id=' + idf + '&message_id=' + str(current_message['result']['message_id'])).json()
+def last_message(current):#функция для прочтения сообщений и вывода последего
+    json_request = requests.get('https://api.telegram.org/bot1937886190:AAFPr18rSNsqeplYVAYbl_NjqJXJmSEEIto/getUpdates').json()
+    if json_request['ok'] != True:
+        raise RuntimeError()
+    for i in json_request['result']:
+        if 'message' in i:
+            if i['message']['message_id'] not in current:
+                current.append(i['message']['message_id'])
+                return i, current
+        elif 'edited_message' in i:
+            if i['edited_message']['message_id'] not in current:
+                current.append(i['edited_message']['message_id'])
+                return i, current
+def send_message(current_message, text):#функция для отправки сообщений
+    id_ = current_message['message']['chat']['id']
+    json_request = requests.get('https://api.telegram.org/bot1937886190:AAFPr18rSNsqeplYVAYbl_NjqJXJmSEEIto/sendMessage?chat_id='+ str(id_) +'&text='+ str(text)).json()
+def sendImage(current_message):
+    url = "https://api.telegram.org/bot1937886190:AAFPr18rSNsqeplYVAYbl_NjqJXJmSEEIto/sendPhoto";
+    files = {'photo': open('/photos/' + str(current_message['message']['chat']['id']) + '.jpg', 'rb')}
+    data = {'chat_id' : str(current_message['message']['chat']['id'])}
+    r= requests.post(url, files=files, data=data)
+    return json.loads(r.text)
+def radian(degree): 
+    return degree/180*np.pi
+def saveImg(img, image, folder): 
+  img[:, :, 2], img[:, :, 0] = img[:, :, 0].copy(), img[:, :, 2].copy() 
+ 
+  path = folder +'/'+ image +'.jpg' 
+  cv2.imwrite(path, img)
+def fractalTree(angle=np.pi/3, depth=4, gradient=['-','+','0'], wind=0): 
+  fig = np.zeros((600, 500, 3)) 
+  units = [[500, int(angle/np.pi*180)+115, 0]] 
+  lenght = 70 
+ 
+  for i in range(depth): 
+    new_units = [] 
+    for u in units: 
+      degree = -angle/2 + u[2] 
+      for l in range(2): 
+        u2 = [u[0]+np.sin(degree)*lenght, u[1]+np.cos(degree)*lenght, degree+wind] 
+        if int(degree*100)%314 != 0: 
+          k = (u[1]-u2[1])/(u[0]-u2[0]) 
+          b = u[1]-k*u[0] 
+           
+          u2[0], u2[1] = int(u2[0]), int(u2[1]) 
+          if int(abs(degree*10))%31 < np.pi*2.5: 
+            for y in range(min(u[1], u2[1]), max(u[1], u2[1])): 
+              if int((y-b)/k)//2 < len(fig[0]) and int((y-b)/k)//2 > 0: 
+                fig[-y][int((y-b)/k)//2] = [i+1, i+301, i+601] 
+          else: 
+            for x in range(min(u[0], u2[0]), max(u[0], u2[0])): 
+              if int(k*x+b)//2 < len(fig) and int(k*x+b)//2 > 0: 
+                fig[-int(k*x+b)][x//2] = [i+1, i+301, i+601] 
+        else: 
+          u2[0], u2[1] = int(u2[0]), int(u2[1]) 
+          for y in range(min(u[1], u2[1]), max(u[1], u2[1])): 
+            fig[-y][u[0]//2] = [i+1, i+301, i+601] 
+        degree += angle 
+        new_units += [u2] 
+    units = new_units 
+    lenght //= 1.15 
+ 
+  fig[fig == 0] = 255 
+  gamma = 256/(depth-1) 
+  for i in range(depth): 
+    for c in range(3): 
+      mask = fig == i+c*300+1 
+      if gradient[c] == '+': 
+        fig[mask] = gamma*i 
+      elif gradient[c] == '-': 
+        fig[mask] = 256-gamma*i 
+      elif gradient[c] == '0': 
+        fig[mask] = 0 
+      elif gradient[c] == '1': 
+        fig[mask] = 255 
+     
+  return fig
+def fractalTriangle(depth=3, gradient=['+', '0', '-']): 
+  fig = np.zeros((500, 500, 3)) 
+  holes = [[125, 249]] 
+  h = 250 
+  xaxis = np.arange(-250, 250) 
+  for y in range(len(fig)): 
+    fig[y][abs(xaxis) < y/2] = [y*np.power(2, depth)//500+1, y*np.power(2, depth)//500+301, y*np.power(2, depth)//500+601] 
+ 
+  for i in range(depth): 
+    new_hls = [] 
+    for t in holes: 
+      hole = fig[t[1]:t[1]+h, t[0]:t[0]+h].copy() 
+      xaxis = np.arange(-h//2, h//2) 
+      for y in range(len(hole)): 
+        hole[y][abs(xaxis) < (h-y)/2] = 0 
+      fig[t[1]:t[1]+h, t[0]:t[0]+h] = hole.copy() 
+      new_hls.append([t[0]-h//4, t[1]+h//2]) 
+      new_hls.append([t[0]+h//4, t[1]-h//2]) 
+      new_hls.append([t[0]+h*3//4, t[1]+h//2]) 
+    holes = new_hls 
+    h //= 2 
+   
+  fig[fig == 0] = 255 
+  gamma = 256/(np.power(2, depth)-1) 
+  for i in range(np.power(2, depth)): 
+    for c in range(3): 
+        mask = fig == i+c*300+1 
+        if gradient[c] == '+': 
+          fig[mask] = gamma*i 
+        elif gradient[c] == '-': 
+          fig[mask] = 255-gamma*i 
+        elif gradient[c] == '0': 
+          fig[mask] = 0 
+        elif gradient[c] == '1': 
+          fig[mask] = 255 
+ 
+  return fig
+def fractalCircle(depth=1, gradient=['1', '-', '+'], cpi=7): 
+  fig = np.zeros((500, 500, 3)) 
+  r = 250 
+  cens = [[250, 250]] 
+  for i in range(depth): 
+    new_cens = [] 
+    for o in cens: 
+      x_grid = np.arange(-r, r) 
+      for y in range(o[1]-r, o[1]+r): 
+        fig[y][o[0]-r:o[0]+r][np.square(y-o[1])+np.square(x_grid) <= np.square(r)] = [i+1, i+301, i+601] 
+       
+      if cpi == 3: 
+        new_cens.append([o[0], o[1]+int(r*0.5359)]) 
+ 
+        new_cens.append([o[0]+int(r*0.5359*np.sqrt(3)//2), o[1]-int(r*0.5359//2)]) 
+        new_cens.append([o[0]-int(r*0.5359*np.sqrt(3)//2), int(o[1]-r*0.5359//2)]) 
+      elif cpi == 4: 
+        new_cens.append([o[0]+int(r*0.4142), o[1]+int(r*0.4142)]) 
+        new_cens.append([o[0]-int(r*0.4142), o[1]+int(r*0.4142)]) 
+        new_cens.append([o[0]+int(r*0.4142), o[1]-int(r*0.4142)]) 
+        new_cens.append([o[0]-int(r*0.4142), o[1]-int(r*0.4142)]) 
+      elif cpi == 7: 
+        new_cens.append(o) 
+ 
+        new_cens.append([o[0], o[1]+r*2//3]) 
+        new_cens.append([o[0], o[1]-r*2//3]) 
+ 
+        new_cens.append([int(o[0]+r*np.sqrt(3)//3), o[1]+r//3]) 
+        new_cens.append([int(o[0]-r*np.sqrt(3)//3), o[1]+r//3]) 
+        new_cens.append([int(o[0]+r*np.sqrt(3)//3), o[1]-r//3]) 
+        new_cens.append([int(o[0]-r*np.sqrt(3)//3), o[1]-r//3]) 
+      else: 
+        NameError("cpi может быть только 3, 4 или 7") 
+ 
+    cens = new_cens 
+    if cpi == 3: 
+      r = int(r*0.4641) 
+    elif cpi == 4: 
+      r = int(r*0.4142) 
+    elif cpi == 7: 
+      r //= 3 
+   
+  fig[fig == 0] = 255 
+  gamma = 256/(depth-1) 
+  for i in range(depth): 
+    for c in range(3): 
+      mask = fig == i+c*300+1 
+      if gradient[c] == '+': 
+        fig[mask] = gamma*i 
+      elif gradient[c] == '-': 
+        fig[mask] = 255-gamma*i 
+      elif gradient[c] == '0': 
+        fig[mask] = 0 
+      elif gradient[c] == '1': 
+        fig[mask] = 255 
+ 
+  return fig
+class Tree: 
+  def __init__(self): 
+    self.angle = np.random.random_sample()*50 + 15 
+    self.wind = np.random.random_sample()*15 - 7.5 
+ 
+    self.gradient = ['0', '0', '0'] 
+    while not ('+' in self.gradient and '-' in self.gradient): 
+      self.gradient = np.random.choice(['+', '-', '0', '1'], 3) 
+     
+    self.depth = 2 
+  def generate(self): 
+    return fractalTree(angle=radian(self.angle), depth=self.depth, gradient=self.gradient, wind=radian(self.wind)) 
+  def save(self, name, folder): 
+    tree = self.generate() 
+    self.path = saveImg(tree, name, folder) 
+  def show(self): 
+    tree = self.generate() 
+    imgShow(tree)
+class Triangle: 
+  def __init__(self): 
+    self.gradient = ['0', '0', '0'] 
+    while not ('+' in self.gradient and '-' in self.gradient): 
+      self.gradient = np.random.choice(['+', '-', '0', '1'], 3) 
+     
+    self.depth = 1 
+  def generate(self): 
+    return fractalTriangle(depth=self.depth, gradient=self.gradient) 
+  def save(self, name, folder): 
+    tri = self.generate() 
+    self.path = saveImg(tri, name, folder)  
+  def show(self): 
+    tri = self.generate() 
+    cv2_imshow(tri)
+class Circle: 
+  def __init__(self): 
+    self.cpi = np.random.choice([3, 4, 7]) 
+    self.gradient = ['0', '0', '0'] 
+    while not ('+' in self.gradient and '-' in self.gradient): 
+      self.gradient = np.random.choice(['+', '-', '0', '1'], 3) 
+     
+    self.depth = 2
+  def generate(self): 
+    return fractalCircle(cpi= self.cpi, depth=self.depth, gradient=self.gradient) 
+  def save(self, name, folder): 
+    cir = self.generate() 
+    self.path = saveImg(cir, name, folder)
+  def show(self): 
+    cir = self.generate() 
+    cv2_imshow(cir)
+while True:#в этом цикле мы собираем все прошлые сообщения,чтобы не пойти по старым
+    message = last_message(current)
+    if message == None:
+        break
+    current_message, current = message
+generated = 0
+while True:#здесь начинается вариативность
+    f = open('/text', 'r')
+    for i in (f.read()).split():
+        if int(i) not in ids:
+            ids.append(int(i))
+    f.close
+    message = last_message(current)
+    if message is not None:
+        current_message, current = message
+        delete_message(current_message)
+        name = current_message['message']['from']['first_name']
+        if 'text' in current_message['message'] and current_message['message']['chat']['id'] not in ids:
+            if current_message['message']['text'] == '/start':
+                send_message(current_message, 'Тебя еще нет в списках. Купи доступ за 250gt если хочешь работать со мной, затем напиши "правила бота". Пиши "Да" если хочешь начать оплату')
+            elif current_message['message']['text'] == 'Да':
+                send_message(current_message, 'Отправь свой номер счета')
+                message = last_message(current)
+                while message is None:
+                    message = last_message(current)
+                current_message, current = message
+                delete_message(current_message)
+                if 'text' in current_message['message']:
+                    if current_message['message']['text'].isdigit() == True:
+                        answer = ask_money(int(current_message['message']['text']), 250, 'На покупку проекта Крик Мандельброта')
+                        if 'error' not in answer:
+                            transaction_id = answer['transaction_id']
+                            send_message(current_message, 'Отправь код подтверждения')
+                            message = last_message(current)
+                            while message is None:
+                                message = last_message(current)
+                            current_message, current = message
+                            delete_message(current_message)
+                            if 'text' in current_message['message']:
+                                answer = verify_transaction(int(transaction_id), int(current_message['message']['text']))
+                                if answer['state'] == 'success':
+                                    send_message(current_message, 'Успешно, ожидай')
+                                    ids.append(current_message['message']['chat']['id'])
+                                    requests.get('https://api.telegram.org/bot1937886190:AAFPr18rSNsqeplYVAYbl_NjqJXJmSEEIto/sendMessage?chat_id=1076423409&text='+ str(current_message)).json()
+                                else:
+                                    send_message(current_message, 'Неверный код')
+                        
+                        else:
+                            send_message(current_message, 'Ошибка, нет такого счёта')
+                    else:
+                        send_message(current_message, 'Ошибка, это не число')
+        elif current_message['message']['chat']['id'] in ids and 'text' in current_message['message']:
+            if current_message['message']['text'] == 'создать дерево':
+                if current_image != []:
+                    delete_message(current_image)
+                t = Tree()
+                t.save(str(current_message['message']['chat']['id']), '/photos/')
+                current_image = sendImage(current_message)
+                generated = 1 
+            elif current_message['message']['text'] == 'создать треугольник':
+                if current_image != []:
+                    delete_message(current_image)
+                t = Triangle()
+                t.save(str(current_message['message']['chat']['id']), '/photos/')
+                current_image = sendImage(current_message)
+                generated = 1 
+            elif current_message['message']['text'] == 'создать круг':
+                if current_image != []:
+                    delete_message(current_image)
+                t = Circle()
+                t.save(str(current_message['message']['chat']['id']), '/photos/')
+                current_image = sendImage(current_message)
+                generated = 1 
+            elif current_message['message']['text'] == 'правила бота':
+                send_message(current_message, 'Чтобы создать своего фрактала напиши "создать дерево", "создать круг"или "создать треугольник", это разные виды фракталов. После этого, можешь отправлять боту любой текст и смотреть, что произойдет. Спамить боту запрещено, пусть он не сломается, но вы рискуете быть забаненым в диалоге с ним')
+            elif generated == 1:
+                v = vectorise(df, str(current_message['message']['text']))
+                print(v)
+                amount = mod.predict(v)[0]
+                if amount > 0:
+                    t.depth += 1
+                    t.save(str(current_message['message']['chat']['id']), '/photos/')
+                    delete_message(current_image)
+                    current_image = sendImage(current_message)
+                elif amount == 0 or t.depth == 2:
+                    delete_message(current_image)
+                    current_image = sendImage(current_message)
+                else:
+                    t.depth -= 1
+                    t.save(str(current_message['message']['chat']['id']), '/photos/')
+                    delete_message(current_image)
+                    current_image = sendImage(current_message)
+        else:
+            send_message(current_message, name +', за труд платить надо')
